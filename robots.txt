@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://hoochi1213.github.io/36exp/sitemap.xml
