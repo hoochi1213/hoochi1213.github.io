@@ -125,6 +125,7 @@ const head = ({title, desc, url, img, ld}) => `<!doctype html>
 <link rel="stylesheet" href="../../assets/site.css">
 <script>try{const t=localStorage.getItem('36exp-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <script type="application/ld+json">${JSON.stringify(ld)}</script>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6864552472625149" crossorigin="anonymous"></script>
 </head>
 <body>
 <header class="bar">
