@@ -1,0 +1,665 @@
+// 개별 페이지 생성기: node tools/build.mjs
+// index.html의 데이터(CAMS, CAM_MORE, DEFECTS, RES, FILMS)와 스타일을 읽어
+// camera/<slug>/, film/<slug>/, faq/ 페이지와 assets/site.css, sitemap.xml을 만들고
+// index.html 안의 <!-- pages:... --> 표시 사이에 링크 목록을 채운다.
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {UPDATED, UPDATED_KO, PRICE_CHECK, CAM_SLUG, FILM_PAGES, PROCESS, FAQ, PHOTO_CREDIT, LABS, LAB_REGIONS, LAB_REGION_PAGES, LABS_SRC, MAIL_LABS, GUIDES, MODELS, STATUS_SRC, FUJI_LIVE, FUJI_GONE, COMPARES} from './pages-data.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const BASE = 'https://hoochi1213.github.io/';
+const indexPath = path.join(ROOT, 'index.html');
+let index = fs.readFileSync(indexPath, 'utf8');
+
+const grab = (start, end) => {
+  const i = index.indexOf(start); if (i < 0) throw new Error('not found: ' + start);
+  const j = index.indexOf(end, i); return index.slice(i + start.length, j + end.length - 1);
+};
+const lit = src => Function('return ' + src.trim().replace(/;$/, ''))();
+const CAMS = lit(grab('const CAMS=', '\n  ];'));
+const CAM_MORE = lit(grab('const CAM_MORE=', '\n  };'));
+const DEFECTS = lit(grab('const DEFECTS=', '\n  ];'));
+const RES = lit(grab('const RES=', '\n  };'));
+const FILMS = lit(grab('const FILMS=', '\n  ];'));
+const P = lit(grab('const P=', ';'));
+const credits = [...index.matchAll(/<li><b>[^<]*<\/b> <a href="([^"]+)">.*?<\/li>/g)];
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const filmRow = n => FILMS.find(f => f[0] === n);
+const filmBySlug = Object.fromEntries(FILM_PAGES.map(f => [f.slug, f]));
+const filmByName = Object.fromEntries(FILM_PAGES.map(f => [f.n, f]));
+const camByKey = Object.fromEntries(CAMS.map(c => [c.img, c]));
+const filmLink = n => filmByName[n] ? `../../film/${filmByName[n].slug}/` : `../../#film`;
+
+// 1) 공용 스타일
+const css = index.slice(index.indexOf('<style>\n') + 8, index.indexOf('</style>', index.indexOf('<style>\n')));
+fs.mkdirSync(path.join(ROOT, 'assets'), {recursive: true});
+fs.writeFileSync(path.join(ROOT, 'assets/site.css'), css.trim() + `
+/* 개별 페이지 */
+.crumb{font-size:12px;color:var(--ink-2);margin:28px 0 10px}
+.crumb a{color:var(--ink-2)}
+.page h1{font-family:var(--f-display);font-weight:500;font-size:clamp(30px,5vw,44px);letter-spacing:-.02em;line-height:1.2;margin:0 0 8px}
+.page .lede{font-size:16px;max-width:66ch;margin:0 0 6px}
+.page .meta{font-size:12px;color:var(--ink-2)}
+.page-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:40px;margin-top:28px}
+@media (max-width:820px){.page-grid{grid-template-columns:minmax(0,1fr);gap:28px}}
+.page h2{font-family:var(--f-display);font-weight:500;font-size:22px;letter-spacing:-.01em;margin:32px 0 8px;padding-top:12px;border-top:1px solid var(--rule)}
+.page-grid>div>h2:first-child{margin-top:0}
+.page p{margin:0 0 10px;max-width:68ch}
+.page ul{margin:0 0 10px;padding-left:20px}
+.page li{margin:3px 0}
+.gallery{display:grid;gap:18px;margin:0}
+.gallery figure{margin:0}
+.gallery img{display:block;width:100%;height:auto;background:var(--rule)}
+.gallery figcaption{font-size:12.5px;color:var(--ink-2);margin-top:6px}
+.checks{list-style:none;padding:0!important}
+.checks>li{padding:12px 0;border-bottom:1px solid var(--rule);margin:0}
+.checks figure{margin:10px 0 0;border:1px solid var(--rule);background:var(--panel)}
+.checks img{display:block;width:100%;max-height:340px;object-fit:cover}
+.checks figcaption{font-size:12.5px;color:var(--ink-2);padding:8px 12px}
+.bigprice{font-family:var(--f-display);font-size:24px;margin:0 0 4px}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px;margin:0 0 10px}
+.facts dt{font:500 10.5px/2 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.facts dd{margin:0}
+.links{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px}
+.links a{text-decoration:none}
+.nextprev{display:flex;justify-content:space-between;gap:12px;margin:40px 0 0;padding-top:16px;border-top:1px solid var(--ink);font-size:14px}
+.faq-list{max-width:760px}
+.faq-list details{border-bottom:1px solid var(--rule);padding:14px 0}
+.faq-list summary{cursor:pointer;font-family:var(--f-display);font-size:18px;font-weight:500}
+.faq-list details p{margin:10px 0 0}
+.page h2[id]{scroll-margin-top:64px}
+.labtbl{font-size:13.5px}
+.labtbl td,.labtbl th{padding:9px 12px 9px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+.labtbl td.n{white-space:nowrap;font-variant-numeric:tabular-nums}
+.labtbl .addr{display:block;font-size:12px;color:var(--ink-2)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0 8px}
+.stats div{border:1px solid var(--rule);padding:12px 14px;background:var(--panel)}
+.stats b{display:block;font-family:var(--f-display);font-size:22px;font-weight:500}
+.stats span{font-size:12px;color:var(--ink-2)}
+.guide-body{max-width:760px}
+.guide-body .gallery img{max-height:420px;object-fit:cover}
+.guide-body ol.steps{margin:10px 0 16px}
+.calc{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0 4px}
+.calc label{display:grid;gap:5px;font-size:12.5px;color:var(--ink-2)}
+.calc input,.calc select{font:15px var(--f-body);padding:8px 10px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);width:100%;box-sizing:border-box}
+.vs-pics{grid-template-columns:1fr 1fr;gap:12px;margin-top:24px}
+.vs-pics img{aspect-ratio:3/2;object-fit:cover}
+.vs th[scope=row]{font:500 11px/1.6 var(--f-mono);color:var(--ink-2);white-space:normal;text-align:left;width:6.5em}
+.vs td{width:calc((100% - 6.5em)/2)}
+.rel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:8px 0 4px}
+@media (max-width:600px){.rel{grid-template-columns:minmax(0,1fr)}}
+.rel a{display:grid;align-content:start;gap:3px;padding:12px 14px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);text-decoration:none}
+.rel a:hover{border-color:var(--ink)}
+.rel .mono{font-size:10.5px;letter-spacing:.08em;color:var(--ink-2)}
+.rel b{font-family:var(--f-display);font-weight:500;font-size:16px}
+.rel span:last-child{font-size:12.5px;color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pagefoot{margin-top:48px;padding:28px 0 40px;border-top:1px solid var(--ink);font-size:12.5px;color:var(--ink-2)}
+.pagefoot ul{list-style:none;padding:0;margin:8px 0 0}
+.sitelinks{margin:10px 0 14px;font-size:13px}
+.sitelinks a{color:var(--ink)}
+`);
+
+// 2) 공용 틀
+const head = ({title, desc, url, img, ld}) => `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>${esc(title)}</title>
+<meta name="description" content="${esc(desc)}">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="36 EXP.">
+<meta property="og:title" content="${esc(title)}">
+<meta property="og:description" content="${esc(desc)}">
+<meta property="og:url" content="${url}">
+<meta property="og:image" content="${BASE}photos/${img}">
+<meta property="og:locale" content="ko_KR">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hahmlet:wght@300;500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../../assets/site.css">
+<script>try{const t=localStorage.getItem('36exp-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<script type="application/ld+json">${JSON.stringify(ld)}</script>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <a class="logo" href="../../"><b>36 EXP.</b><span class="mono">Film Archive</span></a>
+    <nav class="nav" aria-label="메뉴">
+      <a href="../../#quiz">필름 테스트</a><a href="../../guide/">가이드</a><a href="../../camera/">카메라</a><a href="../../film/">필름</a><a href="../../prices/">가격·단종</a><a href="../../#develop">현상</a><a href="../../lab/">현상소</a><a href="../../faq/">자주 묻는 질문</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap page">
+`;
+const creditList = photos => {
+  const items = [...new Set(photos)].map(p => PHOTO_CREDIT[p] && credits.find(m => m[1].includes(PHOTO_CREDIT[p]))).filter(Boolean);
+  return items.length ? `<p class="mono" style="color:var(--ink)">사진 출처 · Wikimedia Commons</p><ul>${items.map(m => m[0].replace('<b>', '<b>').replace(/<\/?b>/g, '')).join('')}</ul>` : '';
+};
+const foot = photos => `
+</main>
+<footer class="wrap pagefoot">
+  <p>36 EXP.는 필름 사진을 처음 시작하는 사람을 위한 개인 아카이브입니다. 가격은 ${UPDATED_KO} 기준의 대략적인 참고치입니다.</p>
+  <nav class="sitelinks" aria-label="사이트 정보"><a href="../../about/">소개</a> · <a href="../../contact/">문의</a> · <a href="../../privacy/">개인정보처리방침</a> · <a href="../../terms/">이용약관</a></nav>
+  ${creditList(photos)}
+</footer>
+<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "caf3a7a3608e4a4e802395a9ab54a818"}'></script><!-- End Cloudflare Web Analytics -->
+</body>
+</html>
+`;
+const crumbLd = items => ({'@type':'BreadcrumbList',itemListElement:items.map(([n,u],i)=>({'@type':'ListItem',position:i+1,name:n,item:u}))});
+const write = (rel, html) => { fs.mkdirSync(path.join(ROOT, rel), {recursive: true}); fs.writeFileSync(path.join(ROOT, rel, 'index.html'), html); };
+const urls = [BASE];
+
+// 2-1) 함께 보면 좋은 페이지: 후보 중 본문에 이미 있는 링크는 빼고 짝수 개(최대 6개)만 카드로 붙임
+const R = {
+  film: s => { const f = filmFull(filmBySlug[s]); return {p: `film/${s}/`, tag: '필름', t: f.n, d: f.why}; },
+  model: md => ({p: `camera/${md.slug}/`, tag: '기종', t: md.n, d: md.lede}),
+  cam: k => ({p: `camera/${CAM_SLUG[k]}/`, tag: '카메라', t: camByKey[k].n, d: camByKey[k].d}),
+  guide: s => { const g = GUIDES.find(x => x.slug === s); return {p: `guide/${s}/`, tag: '가이드', t: g.t, d: g.s}; },
+  cmp: c => ({p: `compare/${c.slug}/`, tag: '비교', t: c.t, d: c.s}),
+  region: r => ({p: `lab/${LAB_REGION_PAGES[r].slug}/`, tag: '현상소', t: `${r} 현상소 ${LABS.filter(l => l.r === r).length}곳`, d: `${r} 지역 현상소의 현상+스캔 가격과 주소`}),
+  lab: () => ({p: 'lab/', tag: '현상소', t: '필름 현상소 목록과 가격', d: `전국 현상소 ${LABS.length}곳의 현상+스캔 가격 비교`}),
+  prices: () => ({p: 'prices/', tag: '가격', t: '필름 가격·단종 현황', d: '필름별 35mm 판매가와 단종·생산 소식'}),
+  faq: () => ({p: 'faq/', tag: '질문', t: '자주 묻는 질문', d: '공항 엑스레이, 유통기한, 현상 비용 등'}),
+};
+const modelsFor = names => MODELS.filter(md => md.films.some(n => names.includes(n)));
+const cmpsFor = slugs => COMPARES.filter(c => slugs.includes(c.a) || slugs.includes(c.b));
+const relCount = {};
+const withRel = (rel, html, cands) => {
+  const here = new URL(`${BASE}${rel}/`);
+  const main = html.slice(html.indexOf('<main'));
+  const seen = new Set([here.pathname, ...[...main.matchAll(/href="([^"#]*)"/g)].map(m => new URL(m[1], here).pathname)]);
+  const out = [];
+  for (const c of cands) { const pth = new URL(c.p, BASE).pathname; if (!seen.has(pth)) { seen.add(pth); out.push(c); } }
+  let pick = out.slice(0, 6); if (pick.length % 2 && pick.length > 1) pick = pick.slice(0, -1);
+  relCount[rel] = pick.length;
+  if (!pick.length) return html;
+  const up = '../'.repeat(rel.split('/').length);
+  const block = `<h2>함께 보면 좋은 페이지</h2>
+<nav class="rel" aria-label="함께 보면 좋은 페이지">${pick.map(c => `<a href="${up}${c.p}"><span class="mono">${c.tag}</span><b>${esc(c.t)}</b><span>${esc(c.d)}</span></a>`).join('')}</nav>
+`;
+  const at = html.indexOf('<nav class="nextprev"') > -1 ? html.indexOf('<nav class="nextprev"') : html.indexOf('\n</main>') + 1;
+  return html.slice(0, at) + block + html.slice(at);
+};
+const writeRel = (rel, html, cands) => write(rel, withRel(rel, html, cands));
+
+// 3) 카메라 페이지
+const camOrder = CAMS.map(c => c.img);
+for (const c of CAMS) {
+  const m = CAM_MORE[c.img], slug = CAM_SLUG[c.img], url = `${BASE}camera/${slug}/`;
+  const pics = [['cam-' + c.img + '.jpg', c.cap], ...m.pics];
+  const defectPics = [];
+  const checks = m.buy.map(t => { const d = DEFECTS.find(x => t.includes(x[0])); if (d) defectPics.push(d[1]);
+    return `<li>${esc(t)}${d ? `<figure><img src="../../photos/${d[1]}" alt="" loading="lazy"><figcaption>${esc(d[2])}</figcaption></figure>` : ''}</li>`; }).join('');
+  const i = camOrder.indexOf(c.img), prev = CAMS[(i + CAMS.length - 1) % CAMS.length], next = CAMS[(i + 1) % CAMS.length];
+  const title = `${c.n} 입문 가이드 — 원리·추천 기종·중고 체크·시세 | 36 EXP.`;
+  const desc = `${c.n}(${c.en}) 필름 카메라 가이드. ${c.d} 중고로 살 때 확인할 것과 ${UPDATED_KO} 기준 대략 시세(${m.price}).`;
+  urls.push(url);
+  writeRel(`camera/${slug}`, head({title, desc, url, img: 'cam-' + c.img + '.jpg', ld: {'@context':'https://schema.org','@graph':[
+    {'@type':'Article',headline:`${c.n} 입문 가이드`,description:desc,image:`${BASE}photos/cam-${c.img}.jpg`,dateModified:UPDATED,inLanguage:'ko',mainEntityOfPage:url},
+    crumbLd([['36 EXP.',BASE],['카메라',BASE+'camera/'],[c.n,url]])]}}) + `
+<p class="crumb"><a href="../../">36 EXP.</a> / <a href="../">카메라</a> / ${esc(c.n)}</p>
+<h1>${esc(c.n)} <span class="mono" style="font-size:12px;color:var(--ink-2)">${esc(c.en)} · ${esc(c.f)}</span></h1>
+<p class="lede">${esc(c.d)}</p>
+<p class="meta">${c.new ? '입문 추천 · ' : ''}${UPDATED_KO} 업데이트</p>
+<div class="page-grid">
+  <div><div class="gallery">${pics.map(p => `<figure><img src="../../photos/${p[0]}" alt="${esc(p[1])}" loading="lazy"><figcaption>${esc(p[1])}</figcaption></figure>`).join('')}</div></div>
+  <div>
+    <h2>어떻게 찍히나요</h2><p>${esc(m.how)}</p>
+    <h2>이런 분께 추천</h2><ul>${m.who.map(w => `<li>${esc(w)}</li>`).join('')}</ul>
+    <h2>좋은 점과 아쉬운 점</h2><dl class="facts"><dt>좋은 점</dt><dd>${esc(c.p)}</dd><dt>아쉬운 점</dt><dd>${esc(c.c)}</dd></dl>
+    <h2>대표 기종</h2><p>${esc(c.ex)}</p>${MODELS.some(md => md.type === c.img) ? `<div class="links">${MODELS.filter(md => md.type === c.img).map(md => `<a class="chip" href="../${md.slug}/">${esc(md.n)} 가이드</a>`).join('')}</div>` : ''}
+    <h2>대략적인 가격</h2><p class="bigprice">${esc(m.price)}</p><p class="meta">${esc(m.pn)} ${UPDATED_KO} 기준, 상태와 시기에 따라 차이가 큰 참고용 금액입니다.</p>
+    ${m.films.length ? `<h2>어울리는 필름</h2><div class="links">${m.films.map(f => `<a class="chip" href="${filmLink(f)}">${esc(f)}</a>`).join('')}</div>` : ''}
+  </div>
+</div>
+<h2>중고로 살 때 확인할 것</h2>
+<ul class="checks">${checks}</ul>
+<p class="meta">사기 전 순서와 판매처 고르기는 <a href="../../guide/buy-camera/">필름 카메라 처음 살 때 확인할 것</a>에 정리했습니다.</p>
+<nav class="nextprev" aria-label="다른 카메라"><a href="../${CAM_SLUG[prev.img]}/">◂ ${esc(prev.n)}</a><a href="../${CAM_SLUG[next.img]}/">${esc(next.n)} ▸</a></nav>
+` + foot([...pics.map(p => p[0]), ...defectPics]), [
+    ...cmpsFor(m.films.map(n => filmByName[n]?.slug).filter(Boolean)).map(R.cmp),
+    ...modelsFor(m.films).filter(md => md.type !== c.img).slice(0, 2).map(R.model),
+    ...(c.img === 'inst' ? [R.cam('ps'), R.cam('half'), R.guide('storage'), R.faq()]
+      : [...['first-roll', 'film-cost', ...(/35mm/.test(c.f) ? ['load-film'] : []), 'scan-film'].map(R.guide), R.lab(), R.prices()])]);
+}
+
+// 3-1) 인기 기종 페이지
+for (const md of MODELS) {
+  const url = `${BASE}camera/${md.slug}/`, t = camByKey[md.type]; urls.push(url);
+  const title = `${md.n}(${md.ko}) 중고 구매 가이드 — 사양·체크 포인트·시세 | 36 EXP.`;
+  const desc = `${md.ko}(${md.n}) 필름 카메라 가이드. ${md.lede} 사양, 장단점, 중고로 살 때 확인할 것, 2026년 해외 판매가 참고.`;
+  writeRel(`camera/${md.slug}`, head({title, desc, url, img: md.pics[0][0], ld: {'@context':'https://schema.org','@graph':[
+    {'@type':'Article',headline:`${md.n} 중고 구매 가이드`,description:desc,image:`${BASE}photos/${md.pics[0][0]}`,dateModified:UPDATED,inLanguage:'ko',mainEntityOfPage:url},
+    crumbLd([['36 EXP.',BASE],['카메라',BASE+'camera/'],[t.n,`${BASE}camera/${CAM_SLUG[md.type]}/`],[md.n,url]])]}}) + `
+<p class="crumb"><a href="../../">36 EXP.</a> / <a href="../">카메라</a> / <a href="../${CAM_SLUG[md.type]}/">${esc(t.n)}</a> / ${esc(md.n)}</p>
+<h1>${esc(md.n)} <span class="mono" style="font-size:13px;color:var(--ink-2)">${esc(md.ko)}</span></h1>
+<p class="lede">${esc(md.lede)}</p>
+<p class="meta">${esc(t.n)} · ${UPDATED_KO} 업데이트</p>
+<div class="page-grid">
+  <div><div class="gallery">${md.pics.map(p => `<figure><img src="../../photos/${p[0]}" alt="${esc(p[1])}" loading="lazy"><figcaption>${esc(p[1])}</figcaption></figure>`).join('')}</div></div>
+  <div>
+    <h2>주요 사양</h2><dl class="facts">${md.specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+    <p class="meta">사양 출처: <a href="${md.src}" rel="nofollow noopener">${md.src.includes('wikipedia') ? '위키백과' : 'camera-wiki'}</a></p>
+    <h2>좋은 점</h2><ul>${md.good.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+    <h2>아쉬운 점</h2><ul>${md.bad.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+  </div>
+</div>
+<h2>중고로 살 때 확인할 것</h2><ul class="checks">${md.check.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+<p>${esc(t.n)} 전반의 점검 방법과 결함 사진은 <a href="../${CAM_SLUG[md.type]}/">${esc(t.n)} 가이드</a>에 있습니다.</p>
+<h2>시세 참고 (해외 판매가, ${UPDATED_KO} 확인)</h2>
+<div class="scroll"><table class="labtbl"><thead><tr><th>판매처</th><th>가격</th><th>비고</th></tr></thead><tbody>${md.price.map(([w, pr, note, u]) => `<tr><td>${u ? `<a href="${u}" rel="nofollow noopener">${esc(w)}</a>` : esc(w)}</td><td class="n">${esc(pr)}</td><td>${esc(note)}</td></tr>`).join('')}</tbody></table></div>
+<p class="meta">국내 거래가는 공개 자료로 확인하기 어려워 해외 판매처 가격을 실었습니다. 정비(CLA)를 마친 판매점 가격이라 개인 거래보다 높을 수 있습니다. 국내 시세는 중고 거래 앱의 거래 완료 매물로 확인하세요.</p>
+<h2>어울리는 필름</h2><div class="links">${md.films.map(f => `<a class="chip" href="${filmLink(f)}">${esc(f)}</a>`).join('')}</div>
+<h2>다른 기종</h2><div class="links">${MODELS.filter(x => x !== md).map(x => `<a class="chip" href="../${x.slug}/">${esc(x.n)}</a>`).join('')}</div>
+` + foot(md.pics.map(p => p[0])), [
+    R.guide('buy-camera'), ...(md.type === 'slr' ? ['load-film', 'sunny-16'] : ['first-roll']).map(R.guide),
+    ...cmpsFor(md.films.map(n => filmByName[n]?.slug).filter(Boolean)).map(R.cmp),
+    R.guide('film-cost'), R.lab(), R.guide('scan-film')]);
+}
+
+// 4) 필름 페이지
+const KIND = {c41:'컬러 네거티브',bw:'흑백 네거티브',e6:'슬라이드(리버설)',ecn:'영화용 컬러 네거티브'};
+const filmFull = f => { const r = f.res ? RES[f.res] : {}; const row = filmRow(f.n) || [];
+  return {...r, ...f, iso: f.iso ?? r.iso, p: f.p ?? r.p, img: f.img ?? r.img, formats: row[3], short: row[4]}; };
+FILM_PAGES.forEach((f0, i) => {
+  const f = filmFull(f0), url = `${BASE}film/${f.slug}/`, pr = PROCESS[f.p];
+  const prev = FILM_PAGES[(i + FILM_PAGES.length - 1) % FILM_PAGES.length], next = FILM_PAGES[(i + 1) % FILM_PAGES.length];
+  const title = `${f.n} 특징·노출 팁·가격 — 필름 가이드 | 36 EXP.`;
+  const desc = `${f.n}(ISO ${f.iso}, ${pr[0]}) 필름 리뷰. ${f.why} ${f.usd ? `${UPDATED_KO} 해외 판매가 ${f.usd[0]}.` : ''}`;
+  urls.push(url);
+  writeRel(`film/${f.slug}`, head({title, desc, url, img: f.img, ld: {'@context':'https://schema.org','@graph':[
+    {'@type':'Article',headline:`${f.n} 필름 가이드`,description:desc,image:`${BASE}photos/${f.img}`,dateModified:UPDATED,inLanguage:'ko',mainEntityOfPage:url},
+    crumbLd([['36 EXP.',BASE],['필름',BASE+'film/'],[f.n,url]])]}}) + `
+<p class="crumb"><a href="../../">36 EXP.</a> / <a href="../">필름</a> / ${esc(f.n)}</p>
+<h1>${esc(f.n)}</h1>
+<p class="lede">${esc(f.why)}</p>
+<p class="meta">ISO ${f.iso} · ${esc(pr[0])} · ${UPDATED_KO} 업데이트</p>
+<div class="page-grid">
+  <div><div class="gallery"><figure><img src="../../photos/${f.img}" alt="${esc(f.cap || f.n + '로 찍은 사진')}" loading="lazy"><figcaption>${esc(f.cap || f.n + '로 찍은 사진')}</figcaption></figure></div></div>
+  <div>
+    <h2>한눈에 보기</h2>
+    <dl class="facts"><dt>감도</dt><dd>ISO ${f.iso}</dd><dt>종류</dt><dd>${f.kind || KIND[f.p]} · ${esc(pr[0])} 현상</dd>${f.formats ? `<dt>판형</dt><dd>${esc(f.formats)}</dd>` : ''}<dt>이럴 때</dt><dd>${esc(f.when)}</dd><dt>가격</dt><dd>${f.usd ? `${esc(f.usd[0])} <span class="meta">(35mm 36컷, <a href="${f.usd[2]}" rel="nofollow noopener">${esc(f.usd[1])}</a> 판매가, ${UPDATED_KO} 확인)</span>` : f.price ? `${esc(f.price)} <span class="meta">(35mm 36컷, ${UPDATED_KO} 국내 대략)</span>` : '<span class="meta">확인된 판매가 없음 — 판매처에서 확인하세요</span>'}</dd></dl>
+    <h2>특징</h2><ul>${f.char.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
+    <h2>찍을 때 팁</h2><p>${esc(f.tip)}</p>
+  </div>
+</div>
+<h2>이 필름에 대해</h2><p>${esc(f.more)}</p>
+<h2>현상</h2><p>${pr[1]}</p>
+<h2>어울리는 카메라</h2><div class="links">${f.cams.map(k => `<a class="chip" href="../../camera/${CAM_SLUG[k]}/">${esc(camByKey[k].n)}</a>`).join('')}</div>
+<h2>비슷한 필름</h2><div class="links">${f.alt.map(s => `<a class="chip" href="../${s}/">${esc(filmBySlug[s].n)}</a>`).join('')}</div>${COMPARES.filter(c => c.a === f.slug || c.b === f.slug).map(c => `
+<h2>비교해 보기</h2><div class="links"><a class="chip" href="../../compare/${c.slug}/">${esc(c.t)}</a></div>`).join('')}
+<nav class="nextprev" aria-label="다른 필름"><a href="../${prev.slug}/">◂ ${esc(prev.n)}</a><a href="../${next.slug}/">${esc(next.n)} ▸</a></nav>
+` + foot([f.img]), [
+    ...modelsFor([f.n]).map(R.model),
+    ...(f.p === 'bw' ? ['home-bw-develop'] : []).map(R.guide),
+    R.guide('film-cost'), R.prices(), R.lab(), ...['scan-film', 'storage'].map(R.guide)]);
+});
+
+// 5) 목록 페이지 (카메라 / 필름)
+const listPage = (rel, name, desc, items, img) => { const url = `${BASE}${rel}/`; urls.push(url);
+  write(rel, (head({title: `${name} — 36 EXP.`, desc, url, img, ld: {'@context':'https://schema.org','@graph':[crumbLd([['36 EXP.',BASE],[name,url]])]}}) + `
+<p class="crumb"><a href="../">36 EXP.</a> / ${esc(name)}</p>
+<h1>${esc(name)}</h1><p class="lede">${esc(desc)}</p>
+<div class="cams" style="margin-top:24px">${items.map(it => `<a class="cam" href="${it.href}" style="text-decoration:none;color:inherit;cursor:pointer"><figure class="shot"><img src="../photos/${it.img}" alt="" loading="lazy"></figure><h4>${esc(it.n)} <span class="mono">${esc(it.tag)}</span></h4><p>${esc(it.d)}</p><span class="more">자세히 보기</span></a>`).join('')}</div>
+` + foot(items.map(it => it.img))).replaceAll('../../', '../'));
+};
+listPage('camera', '필름 카메라 종류별 가이드', '판형과 형식에 따라 나눈 10가지 필름 카메라. 원리, 추천 기종, 중고로 살 때 확인할 것, 대략적인 시세를 정리했습니다.',
+  [...CAMS.map(c => ({href: `${CAM_SLUG[c.img]}/`, img: `cam-${c.img}.jpg`, n: c.n, tag: c.f, d: c.d})),
+   ...MODELS.map(md => ({href: `${md.slug}/`, img: md.pics[0][0], n: md.n, tag: '기종', d: md.lede}))], 'camera.jpg');
+listPage('film', '필름별 가이드', `처음 고르기 좋은 필름 ${FILM_PAGES.length}종의 특징, 노출 팁, 현상 방법, 가격을 정리했습니다.`,
+  FILM_PAGES.map(f0 => { const f = filmFull(f0); return {href: `${f.slug}/`, img: f.img, n: f.n, tag: `ISO ${f.iso}`, d: f.why}; }), 'film.jpg');
+
+// 5-1) 필름 비교 페이지
+const perShot = u => '$' + (parseFloat(u[0].slice(1)) / 36).toFixed(2);
+COMPARES.forEach(c => {
+  const a = filmFull(filmBySlug[c.a]), b = filmFull(filmBySlug[c.b]), url = `${BASE}compare/${c.slug}/`; urls.push(url);
+  const title = `${c.t} 차이와 고르는 법 — 필름 비교 | 36 EXP.`;
+  const desc = `${a.n}와 ${b.n}의 색감, 입자, 노출 관용도, 가격 차이. ${c.s}`;
+  const price = f => f.usd ? `${esc(f.usd[0])} <span class="meta">(1컷 약 ${perShot(f.usd)}, <a href="${f.usd[2]}" rel="nofollow noopener">${esc(f.usd[1])}</a>)</span>` : '<span class="meta">확인된 판매가 없음</span>';
+  const fig = f => `<figure><img src="../../photos/${f.img}" alt="${esc(f.cap || f.n + '로 찍은 사진')}" loading="lazy"><figcaption>${esc(f.cap || f.n + '로 찍은 사진')}</figcaption></figure>`;
+  const rows = [['감도', `ISO ${a.iso}`, `ISO ${b.iso}`], ['현상', `${a.kind || KIND[a.p]} · ${PROCESS[a.p][0]}`, `${b.kind || KIND[b.p]} · ${PROCESS[b.p][0]}`],
+    ...(a.formats && b.formats ? [['판형', a.formats, b.formats]] : []), ...c.rows];
+  writeRel(`compare/${c.slug}`, head({title, desc, url, img: a.img, ld: {'@context':'https://schema.org','@graph':[
+    {'@type':'Article',headline:`${c.t} 비교`,description:desc,image:`${BASE}photos/${a.img}`,dateModified:UPDATED,inLanguage:'ko',mainEntityOfPage:url,about:[a.n,b.n]},
+    crumbLd([['36 EXP.',BASE],['필름 비교',BASE+'compare/'],[c.t,url]])]}}) + `
+<p class="crumb"><a href="../../">36 EXP.</a> / <a href="../">필름 비교</a> / ${esc(c.t)}</p>
+<h1>${esc(c.t)}</h1>
+<p class="lede">${esc(c.s)}</p>
+<p class="meta">${UPDATED_KO} 업데이트 · 가격은 35mm 36컷 해외 판매가</p>
+<div class="gallery vs-pics">${fig(a)}${fig(b)}</div>
+<h2>한눈에 비교</h2>
+<div class="scroll"><table class="labtbl vs"><thead><tr><th></th><th><a href="../../film/${a.slug}/">${esc(a.n)}</a></th><th><a href="../../film/${b.slug}/">${esc(b.n)}</a></th></tr></thead><tbody>
+${rows.map(r => `<tr><th scope="row">${esc(r[0])}</th><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('')}
+<tr><th scope="row">가격</th><td>${price(a)}</td><td>${price(b)}</td></tr>
+</tbody></table></div>
+<h2>이럴 때 고르세요</h2>
+<dl class="facts"><dt>${esc(a.n)}</dt><dd>${esc(c.pick[0])}</dd><dt>${esc(b.n)}</dt><dd>${esc(c.pick[1])}</dd></dl>
+<h2>자세한 차이</h2>
+${c.body}
+<h2>각 필름 자세히 보기</h2><div class="links"><a class="chip" href="../../film/${a.slug}/">${esc(a.n)} 가이드</a><a class="chip" href="../../film/${b.slug}/">${esc(b.n)} 가이드</a><a class="chip" href="../../prices/">필름 가격·단종 현황</a><a class="chip" href="../../lab/">현상소 찾기</a></div>
+<h2>다른 비교</h2><div class="links">${COMPARES.filter(x => x !== c).map(x => `<a class="chip" href="../${x.slug}/">${esc(x.t)}</a>`).join('')}</div>
+<h2>출처</h2><ul><li>가격: 위 표의 판매처 링크(${UPDATED_KO} 확인)</li><li>필름 특징: 이 사이트의 각 필름 가이드</li>${c.src.map(([t, u]) => `<li><a href="${u}" rel="nofollow noopener">${esc(t)}</a> (2026년 11월 13일 확인)</li>`).join('')}</ul>
+` + foot([a.img, b.img]), [
+    ...modelsFor([a.n, b.n]).map(R.model),
+    ...(a.p === 'bw' || b.p === 'bw' ? ['home-bw-develop'] : []).map(R.guide),
+    ...['film-cost', 'scan-film', 'storage', 'first-roll'].map(R.guide)]);
+});
+listPage('compare', '필름 비교', '헷갈리는 필름 두 가지를 나란히 놓고 색감, 입자, 노출 관용도, 가격을 비교했습니다.',
+  COMPARES.map(c => { const a = filmFull(filmBySlug[c.a]); return {href: `${c.slug}/`, img: a.img, n: c.t, tag: 'VS', d: c.s}; }), 'film.jpg');
+
+// 6) FAQ
+{ const url = `${BASE}faq/`; urls.push(url);
+  write('faq', head({title: '필름 사진 자주 묻는 질문 12가지 — 36 EXP.', desc: '공항 엑스레이, 유통기한 지난 필름, 현상 비용, ISO 고르기 등 필름 사진을 시작할 때 가장 많이 묻는 질문과 답.', url, img: 'og.jpg',
+    ld: {'@context':'https://schema.org','@graph':[{'@type':'FAQPage',mainEntity:FAQ.map(x => ({'@type':'Question',name:x.q,acceptedAnswer:{'@type':'Answer',text:x.a.replace(/<[^>]+>/g, '')}}))},
+      crumbLd([['36 EXP.',BASE],['자주 묻는 질문',url]])]}}).replaceAll('../../', '../') + `
+<p class="crumb"><a href="../">36 EXP.</a> / 자주 묻는 질문</p>
+<h1>자주 묻는 질문</h1><p class="lede">필름 사진을 시작할 때 가장 많이 묻는 질문들입니다. 질문을 누르면 답이 펼쳐집니다.</p>
+<div class="faq-list" style="margin-top:20px">${FAQ.map((x, i) => `<details${i < 3 ? ' open' : ''}><summary>${esc(x.q)}</summary><p>${x.a}</p></details>`).join('')}</div>
+` + foot([]).replaceAll('../../', '../'));
+}
+
+// 6-1) 사이트 정보 페이지 (소개·문의·개인정보처리방침·이용약관)
+const OWNER = '김재현 (hoochi)', MAIL = 'hoochi1213@gmail.com', POLICY_DATE = '2026-11-18', POLICY_DATE_KO = '2026년 11월 18일';
+const POLICY = [
+  {slug: 'about', t: '소개', title: '36 EXP. 소개 — 필름 사진 입문 아카이브', type: 'AboutPage',
+   desc: '36 EXP.는 필름 카메라, 필름, 촬영, 현상, 스캔, 현상소 정보를 한곳에 모은 필름 사진 입문 아카이브입니다. 운영자와 정보 작성 원칙을 소개합니다.',
+   lede: '필름 사진을 처음 시작하는 사람이 첫 롤을 끝까지 완주하도록 돕는 개인 아카이브입니다.',
+   body: `<h2>무엇을 다루나요</h2>
+<p>카메라 고르기부터 필름 선택, 촬영, 현상, 인화, 스캔, 보관, 현상소 이용까지 필름 사진의 전 과정을 순서대로 정리합니다. 카메라 유형 10가지와 인기 기종 5종, 필름 20종, 필름 비교 3편, 따라 하기 가이드 8편, 전국 지역별 현상소 목록을 제공합니다.</p>
+<h2>직접 써 보는 도구</h2>
+<ul>
+<li><a href="../#quiz">필름 테스트</a> — 6개 질문에 답하면 나에게 맞는 필름을 추천합니다.</li>
+<li><a href="../#sim">필름 시뮬레이터</a> — 내 사진에 필름 느낌을 입혀 비교하고 저장합니다. 사진은 기기 안에서만 처리됩니다.</li>
+<li><a href="../guide/sunny-16/">써니 16 계산기</a> — 노출계 없이 조리개와 셔터 속도를 정합니다.</li>
+<li><a href="../#develop">흑백 현상 타이머</a> — 현상 단계별 시간을 안내합니다.</li>
+</ul>
+<h2>정보 작성 원칙</h2>
+<ul>
+<li>필름 사양과 현상 방식은 제조사(Kodak, Ilford, Fujifilm 등) 공식 자료를 기준으로 합니다.</li>
+<li>가격과 현상소 정보에는 기준 시점과 출처를 함께 적고, 바뀐 내용은 확인하는 대로 고칩니다.</li>
+<li>사진은 출처와 라이선스를 페이지마다 밝힙니다.</li>
+<li>특정 판매처나 현상소에서 대가를 받고 쓴 글은 없습니다.</li>
+</ul>
+<h2>운영자</h2>
+<dl class="facts"><dt>운영</dt><dd>${OWNER}</dd><dt>문의</dt><dd><a href="mailto:${MAIL}">${MAIL}</a></dd><dt>시작</dt><dd>2026년 10월</dd></dl>
+<p>틀린 정보나 바뀐 가격, 새로 생긴 현상소를 알려 주시면 확인한 뒤 반영합니다. 자세한 방법은 <a href="../contact/">문의</a> 페이지를 보세요.</p>`},
+  {slug: 'contact', t: '문의', title: '문의하기 — 36 EXP.', type: 'ContactPage',
+   desc: '36 EXP. 정보 오류 제보, 현상소 정보 추가·수정, 사진 저작권, 기타 문의 방법을 안내합니다.',
+   lede: '정보 오류, 현상소 정보 수정, 사진 저작권 등 무엇이든 메일로 보내 주세요.',
+   body: `<h2>메일</h2>
+<p class="bigprice"><a href="mailto:${MAIL}">${MAIL}</a></p>
+<p>운영자 ${OWNER}가 직접 읽고 답장합니다.</p>
+<h2>이런 내용을 받습니다</h2>
+<ul>
+<li><b>정보 오류</b> — 필름 사양, 현상 방식, 용어 설명이 틀린 경우. 해당 페이지 주소를 함께 적어 주세요.</li>
+<li><b>현상소 정보</b> — 가격 변경, 폐업, 이전, 새로 생긴 현상소. 현상소 운영자의 직접 제보도 환영합니다.</li>
+<li><b>가격·단종</b> — 판매가 변동이나 단종 소식. 확인할 수 있는 링크가 있으면 더 빨리 반영할 수 있습니다.</li>
+<li><b>사진 저작권</b> — 사진 표기에 문제가 있으면 바로 고치거나 내립니다.</li>
+<li><b>제휴·기타</b> — 그 밖의 제안이나 질문.</li>
+</ul>
+<h2>보내기 전에</h2>
+<p>자주 받는 질문은 <a href="../faq/">자주 묻는 질문</a>에 정리해 두었습니다. 보내 주신 메일 주소는 답장에만 쓰며, 자세한 내용은 <a href="../privacy/">개인정보처리방침</a>을 보세요.</p>`},
+  {slug: 'privacy', t: '개인정보처리방침', title: '개인정보처리방침 — 36 EXP.', type: 'WebPage',
+   desc: '36 EXP.가 수집하는 정보, 쿠키와 광고(Google AdSense), 방문 통계, 이용자의 권리를 안내하는 개인정보처리방침입니다.',
+   lede: `36 EXP.(이하 "사이트")는 이용자의 개인정보를 소중히 다루며, 「개인정보 보호법」 등 관련 법령을 지킵니다. 시행일: ${POLICY_DATE_KO}`,
+   body: `<h2>1. 수집하는 정보</h2>
+<p>사이트는 회원가입이나 로그인 없이 이용할 수 있으며, 이름·연락처 같은 개인정보를 직접 입력받지 않습니다. 다만 아래 정보가 자동으로 생기거나, 이용자가 직접 보낼 수 있습니다.</p>
+<ul>
+<li><b>메일 문의</b> — 이용자가 보낸 메일 주소와 내용. 답장에만 쓰고, 처리가 끝나면 1년 안에 지웁니다.</li>
+<li><b>방문 통계</b> — 방문 페이지, 브라우저 종류, 대략적인 국가 등 개인을 알아볼 수 없는 정보.</li>
+<li><b>기기 저장 설정</b> — 화면 테마(밝게/어둡게) 선택을 이용자 브라우저(localStorage)에만 저장합니다. 사이트 서버로 보내지 않습니다.</li>
+</ul>
+<h2>2. 필름 시뮬레이터의 사진</h2>
+<p>시뮬레이터에 올린 사진은 이용자 기기의 브라우저 안에서만 처리되며, 어떤 서버로도 업로드되지 않습니다. 페이지를 닫으면 사라집니다.</p>
+<h2>3. 쿠키와 광고</h2>
+<p>사이트는 Google AdSense 광고를 게재할 수 있습니다. 이 경우 다음이 적용됩니다.</p>
+<ul>
+<li>Google을 포함한 제3자 광고 사업자는 쿠키를 사용해 이용자의 이 사이트 및 다른 사이트 방문 기록을 바탕으로 광고를 보여줄 수 있습니다.</li>
+<li>Google은 광고 쿠키를 사용해 이용자에게 맞춤 광고를 제공합니다.</li>
+<li>이용자는 <a href="https://adssettings.google.com/" rel="nofollow noopener">Google 광고 설정</a>에서 맞춤 광고를 끌 수 있고, <a href="https://www.aboutads.info/choices/" rel="nofollow noopener">aboutads.info</a>에서 다른 제3자 사업자의 맞춤 광고 쿠키를 거부할 수 있습니다.</li>
+<li>Google이 정보를 어떻게 사용하는지는 <a href="https://policies.google.com/technologies/partner-sites?hl=ko" rel="nofollow noopener">Google 파트너 사이트 정보 이용 안내</a>에서 확인할 수 있습니다.</li>
+</ul>
+<p>브라우저 설정에서 쿠키 저장을 거부할 수 있으며, 이 경우에도 사이트의 글과 도구는 그대로 이용할 수 있습니다.</p>
+<h2>4. 외부 서비스</h2>
+<ul>
+<li><b>Cloudflare Web Analytics</b> — 쿠키 없이 방문 수를 집계합니다.</li>
+<li><b>hits.sh</b> — 첫 화면의 방문 수 표시에 씁니다.</li>
+<li><b>Google Fonts</b> — 글꼴을 불러오는 과정에서 IP 주소가 Google에 전달될 수 있습니다.</li>
+<li><b>GitHub Pages</b> — 사이트를 호스팅하며, 보안을 위해 접속 기록을 남길 수 있습니다.</li>
+</ul>
+<h2>5. 제3자 제공</h2>
+<p>사이트는 이용자의 개인정보를 판매하거나 제3자에게 제공하지 않습니다. 법령에 따른 요청이 있는 경우는 예외입니다.</p>
+<h2>6. 이용자의 권리</h2>
+<p>이용자는 사이트가 가진 자신의 정보(문의 메일 등)를 열람·정정·삭제해 달라고 요청할 수 있습니다. 아래 연락처로 보내 주시면 지체 없이 처리합니다.</p>
+<h2>7. 개인정보 보호책임자</h2>
+<dl class="facts"><dt>책임자</dt><dd>${OWNER}</dd><dt>연락처</dt><dd><a href="mailto:${MAIL}">${MAIL}</a></dd></dl>
+<h2>8. 변경</h2>
+<p>이 방침을 바꾸면 이 페이지에 시행일과 함께 알립니다. 현재 방침은 ${POLICY_DATE_KO}부터 시행합니다.</p>`},
+  {slug: 'terms', t: '이용약관', title: '이용약관 — 36 EXP.', type: 'WebPage',
+   desc: '36 EXP. 이용약관 — 콘텐츠 저작권, 사진 라이선스, 가격·현상소 정보의 한계, 외부 링크와 책임 범위를 안내합니다.',
+   lede: `36 EXP.를 이용하기 전에 읽어 주세요. 시행일: ${POLICY_DATE_KO}`,
+   body: `<h2>1. 목적</h2>
+<p>이 약관은 36 EXP.(이하 "사이트")가 제공하는 필름 사진 정보와 도구의 이용 조건을 정합니다. 사이트를 이용하면 이 약관에 동의한 것으로 봅니다.</p>
+<h2>2. 콘텐츠 저작권</h2>
+<ul>
+<li>사이트의 글, 표, 도구(필름 테스트, 시뮬레이터, 계산기, 타이머)의 저작권은 운영자에게 있습니다.</li>
+<li>개인적인 학습과 비영리 목적의 인용은 출처(36 EXP.와 페이지 주소)를 밝히면 허용합니다.</li>
+<li>글 전체를 옮겨 싣거나 상업적으로 이용하려면 미리 <a href="../contact/">문의</a>해 주세요.</li>
+</ul>
+<h2>3. 사진</h2>
+<p>사이트의 사진 상당수는 Wikimedia Commons 등에서 가져온 것으로, 각 사진의 저작자와 라이선스(CC BY, CC BY-SA, 퍼블릭 도메인 등)를 페이지 하단에 표기합니다. 이 사진들은 사이트 약관이 아니라 각 원본 라이선스를 따릅니다.</p>
+<h2>4. 정보의 정확성</h2>
+<ul>
+<li>가격, 단종 여부, 현상소 정보는 표기한 기준 시점의 참고치이며 수시로 바뀝니다. 구매하거나 맡기기 전에 판매처와 현상소에 직접 확인하세요.</li>
+<li>현상 시간, 노출값 등 기술 정보는 일반적인 기준입니다. 필름과 약품 제조사의 최신 안내를 우선하세요.</li>
+<li>현상 약품은 사용 설명서와 안전 수칙을 지켜 다루세요.</li>
+</ul>
+<h2>5. 외부 링크와 광고</h2>
+<p>사이트에는 판매처, 현상소, 제조사 등 외부 사이트 링크와 광고가 포함될 수 있습니다. 외부 사이트의 내용과 거래는 해당 사이트의 책임입니다.</p>
+<h2>6. 책임의 한계</h2>
+<p>운영자는 정확한 정보를 위해 노력하지만, 사이트 정보를 이용해 생긴 필름·장비 손상이나 거래 손해에 대해 고의나 중대한 과실이 없는 한 책임지지 않습니다.</p>
+<h2>7. 변경과 문의</h2>
+<p>약관을 바꾸면 이 페이지에 시행일과 함께 알립니다. 문의: <a href="mailto:${MAIL}">${MAIL}</a></p>`},
+];
+for (const p of POLICY) {
+  const url = `${BASE}${p.slug}/`; urls.push(url);
+  write(p.slug, head({title: p.title, desc: p.desc, url, img: 'og.jpg',
+    ld: {'@context':'https://schema.org','@graph':[{'@type':p.type,name:p.t,url,inLanguage:'ko',dateModified:POLICY_DATE,isPartOf:{'@type':'WebSite',name:'36 EXP.',url:BASE}},crumbLd([['36 EXP.',BASE],[p.t,url]])]}}).replaceAll('../../', '../') + `
+<p class="crumb"><a href="../">36 EXP.</a> / ${p.t}</p>
+<h1>${p.t}</h1><p class="lede">${p.lede}</p>
+<div style="max-width:760px">
+${p.body}
+</div>
+` + foot([]).replaceAll('../../', '../'));
+}
+
+// 6-1) 가이드
+const mdl = s => R.model(MODELS.find(md => md.slug === s));
+const GUIDE_REL = {
+  'first-roll': [R.film('gold-200'), R.film('kodak-ultramax-400'), R.cam('ps'), R.cam('slr')],
+  'buy-camera': [mdl('pentax-k1000'), mdl('nikon-fm2'), mdl('canon-ae-1'), mdl('olympus-mju-ii')],
+  'film-cost': [R.film('kodak-ultramax-400'), R.film('kentmere-pan-400'), R.cmp(COMPARES[0]), R.region('서울')],
+  'load-film': [mdl('pentax-k1000'), mdl('nikon-fm2'), mdl('canon-ae-1'), R.cam('slr')],
+  'sunny-16': [mdl('nikon-fm2'), mdl('pentax-k1000'), R.film('kentmere-pan-400'), R.film('gold-200')],
+  'home-bw-develop': [R.film('kodak-tri-x-400'), R.film('ilford-hp5-plus'), R.film('kentmere-pan-400'), R.film('fomapan-100'), R.cmp(COMPARES[1])],
+  'scan-film': [R.region('서울'), R.region('경기'), R.region('부산'), R.region('대구')],
+  'storage': [R.film('portra-400'), R.film('cinestill-800t'), R.film('ilford-hp5-plus'), R.cam('ps')],
+};
+GUIDES.forEach((g, i) => {
+  const url = `${BASE}guide/${g.slug}/`; urls.push(url);
+  const prev = GUIDES[(i + GUIDES.length - 1) % GUIDES.length], next = GUIDES[(i + 1) % GUIDES.length];
+  writeRel(`guide/${g.slug}`, head({title: `${g.t} — 36 EXP.`, desc: g.d, url, img: g.img, ld: {'@context':'https://schema.org','@graph':[
+    {'@type':'Article',headline:g.t,description:g.d,image:`${BASE}photos/${g.img}`,dateModified:g.upd || UPDATED,inLanguage:'ko',mainEntityOfPage:url},
+    crumbLd([['36 EXP.',BASE],['가이드',BASE+'guide/'],[g.t,url]])]}}) + `
+<p class="crumb"><a href="../../">36 EXP.</a> / <a href="../">가이드</a> / ${esc(g.t)}</p>
+<h1>${esc(g.t)}</h1>
+<p class="lede">${esc(g.s)}</p>
+<p class="meta">${g.updKo || UPDATED_KO} 업데이트</p>
+<div class="guide-body">
+<figure class="gallery" style="margin:24px 0 8px"><img src="../../photos/${g.img}" alt="" loading="lazy"></figure>
+${g.body}
+</div>
+<h2>다른 가이드</h2><div class="links">${GUIDES.filter(x => x !== g).map(x => `<a class="chip" href="../${x.slug}/">${esc(x.t)}</a>`).join('')}</div>
+<nav class="nextprev" aria-label="다른 가이드"><a href="../${prev.slug}/">◂ ${esc(prev.t)}</a><a href="../${next.slug}/">${esc(next.t)} ▸</a></nav>
+` + foot([g.img]), [...(GUIDE_REL[g.slug] || []), R.lab(), R.prices(), R.faq(), R.film('portra-400')]);
+});
+listPage('guide', '필름 사진 가이드', '첫 롤 완주부터 필름 넣기, 노출, 자가 현상, 스캔, 보관까지. 필름 사진을 시작할 때 필요한 방법을 단계별로 정리했습니다.',
+  GUIDES.map(g => ({href: `${g.slug}/`, img: g.img, n: g.t, tag: '', d: g.s})), 'film.jpg');
+
+// 6-1b) 필름 가격·단종 현황
+{ const url = `${BASE}prices/`; urls.push(url);
+  const priced = FILM_PAGES.map(filmFull).filter(f => f.usd).sort((a, b) => parseFloat(a.usd[0].slice(1)) - parseFloat(b.usd[0].slice(1)));
+  const noPrice = FILM_PAGES.map(filmFull).filter(f => !f.usd);
+  write('prices', head({title: `필름 가격·단종 현황 (${UPDATED_KO}) — 36 EXP.`, desc: `필름 ${priced.length}종의 35mm 판매가 비교와 후지필름 단종·생산 현황. ${UPDATED_KO} 기준, 출처 포함.`, url, img: 'film.jpg',
+    ld: {'@context':'https://schema.org','@graph':[{'@type':'Article',headline:`필름 가격·단종 현황 ${UPDATED_KO}`,dateModified:UPDATED,inLanguage:'ko',mainEntityOfPage:url},crumbLd([['36 EXP.',BASE],['가격·단종 현황',url]])]}}).replaceAll('../../', '../') + `
+<p class="crumb"><a href="../">36 EXP.</a> / 가격·단종 현황</p>
+<h1>필름 가격·단종 현황</h1>
+<p class="lede">필름값은 자주 오르고, 어떤 필름은 조용히 사라집니다. 지금 살 수 있는 필름의 가격과 단종 소식을 한곳에 모았습니다. 매월 갱신합니다.</p>
+<p class="meta">${UPDATED_KO} 기준 · 국내 판매가는 공개 자료로 확인하기 어려워 해외 판매가(미국)를 출처와 함께 실었습니다.</p>
+<p class="meta">판매처 가격 다시 확인: ${PRICE_CHECK.ko}. 같은 판매처에서 가격이 그대로인 필름: ${PRICE_CHECK.same.map(esc).join(' · ')}. ${esc(PRICE_CHECK.note)}</p>
+<div class="stats">
+  <div><b>${priced[0].usd[0]}</b><span>가장 저렴: ${esc(priced[0].n)}</span></div>
+  <div><b>${priced[priced.length - 1].usd[0]}</b><span>가장 비쌈: ${esc(priced[priced.length - 1].n)}</span></div>
+  <div><b>${priced.length}종</b><span>가격 확인 (35mm 36컷)</span></div>
+</div>
+<h2>35mm 필름 가격 (싼 순)</h2>
+<div class="scroll"><table class="labtbl"><thead><tr><th>필름</th><th>종류</th><th>가격</th><th>판매처</th></tr></thead><tbody>
+${priced.map(f => `<tr><td><a href="../film/${f.slug}/">${esc(f.n)}</a></td><td>${f.kind || KIND[f.p]} · ISO ${f.iso}</td><td class="n">${esc(f.usd[0])}</td><td><a href="${f.usd[2]}" rel="nofollow noopener">${esc(f.usd[1])}</a></td></tr>`).join('')}
+</tbody></table></div>
+<p class="meta">가격 미확인: ${noPrice.map(f => `<a href="../film/${f.slug}/">${esc(f.n)}</a>`).join(' · ')}. 판매처마다 차이가 크고, 품절이 잦습니다.</p>
+<h2>후지필름: 지금도 생산 중인 필름</h2>
+<div class="scroll"><table class="labtbl"><thead><tr><th>필름</th><th>종류</th><th>판형</th></tr></thead><tbody>
+${FUJI_LIVE.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('')}
+</tbody></table></div>
+<p class="meta">"생산 중"과 "재고 있음"은 다릅니다. ${UPDATED_KO} 해외 판매처에서는 Velvia 50과 Provia 100F 35mm가 품절 표시였습니다.</p>
+<h2>후지필름: 단종된 필름</h2>
+<div class="scroll"><table class="labtbl"><thead><tr><th>필름</th><th>시기</th><th>내용</th></tr></thead><tbody>
+${FUJI_GONE.map(r => `<tr><td>${esc(r[0])}</td><td class="n">${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('')}
+</tbody></table></div>
+<h2>요즘 도는 소문, 사실은</h2>
+<ul>
+<li><b>"후지필름이 흑백 필름을 접는다"</b> — 사실이 아닙니다. 2026년 5월 알려진 것은 후지필름 이미징 시스템즈의 <b>흑백 현상·인화 서비스 종료</b>(2026년 7월 21일 접수분까지)이고, 흑백 필름·약품·인화지는 해당하지 않습니다.</li>
+<li><b>Kodak 필름 상자가 바뀌었다</b> — 2026년부터 일부 Kodak 필름 유통이 Eastman Kodak으로 옮겨 새 상자로 나오고, 예전 상자도 함께 팔리고 있습니다.</li>
+</ul>
+<h2>필름이 없거나 비쌀 때</h2>
+<ul>
+<li>Portra 400 대신 → <a href="../film/kodak-ultramax-400/">UltraMax 400</a>(약 절반 가격) 또는 <a href="../film/gold-200/">Gold 200</a></li>
+<li>Velvia·Provia 품절 → <a href="../film/kodak-ektachrome-e100/">Ektachrome E100</a> 또는 선명한 컬러 네거 <a href="../film/ektar-100/">Ektar 100</a></li>
+<li>흑백 연습용 → <a href="../film/kentmere-pan-400/">Kentmere Pan 400</a>, <a href="../film/fomapan-100/">Fomapan 100</a></li>
+</ul>
+<h2>출처</h2>
+<ul>${STATUS_SRC.map(([t, u]) => `<li><a href="${u}" rel="nofollow noopener">${esc(t)}</a></li>`).join('')}<li>개별 가격 출처는 위 표의 판매처 링크</li></ul>
+` + foot(['film.jpg']).replaceAll('../../', '../'));
+}
+
+// 6-2) 현상소
+{ const url = `${BASE}lab/`; urls.push(url);
+  const won = v => v == null ? '–' : v.toLocaleString('ko-KR');
+  const base = LABS.map(l => l.c[0]).filter(v => v != null).sort((a, b) => a - b);
+  const hi = LABS.map(l => l.c[1]).filter(v => v != null).sort((a, b) => a - b);
+  const med = a => a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2);
+  const regions = LAB_REGIONS.filter(r => LABS.some(l => l.r === r));
+  write('lab', head({title: `필름 현상소 목록과 가격 비교 (${UPDATED_KO}) — 36 EXP.`, desc: `전국 ${regions.length}개 지역 필름 현상소 ${LABS.length}곳의 35mm 컬러·흑백·슬라이드·120 현상+스캔 가격 비교와 택배 접수 현상소, 맡기는 법.`, url, img: 'lab.jpg',
+    ld: {'@context':'https://schema.org','@graph':[crumbLd([['36 EXP.',BASE],['현상소',url]])]}}).replaceAll('../../', '../') + `
+<p class="crumb"><a href="../">36 EXP.</a> / 현상소</p>
+<h1>필름 현상소 목록과 가격</h1>
+<p class="lede">35mm 컬러 필름 한 롤을 현상하고 스캔까지 받는 데 드는 비용은 생각보다 저렴합니다. 지역별 현상소 ${LABS.length}곳의 가격을 한 표로 비교했습니다.</p>
+<p class="meta">가격 기준: <a href="${LABS_SRC.url}">${LABS_SRC.name}</a> (${LABS_SRC.date}) 및 각 현상소 공지. 가격과 운영 여부는 수시로 바뀌니 맡기기 전에 꼭 확인하세요.</p>
+<div class="stats">
+  <div><b>${won(base[0])}~${won(base[base.length - 1])}원</b><span>35mm 컬러 현상+기본 스캔</span></div>
+  <div><b>${won(med(base))}원</b><span>기본 스캔 중간값 (${base.length}곳)</span></div>
+  <div><b>${won(med(hi))}원</b><span>고해상도 스캔 중간값 (${hi.length}곳)</span></div>
+</div>
+<nav class="links" aria-label="지역" style="margin-top:14px">${regions.map((r, i) => `<a class="chip" href="#r${i}">${r} ${LABS.filter(l => l.r === r).length}</a>`).join('')}</nav>
+${regions.map((r, i) => `<h2 id="r${i}">${r}</h2>
+<p class="meta"><a href="${LAB_REGION_PAGES[r].slug}/">${r} 현상소만 따로 보기 →</a></p>
+<div class="scroll"><table class="labtbl"><thead><tr><th>현상소</th><th>35mm 컬러<br>기본 / 고해상</th><th>35mm 흑백</th><th>35mm 슬라이드</th><th>120 컬러</th></tr></thead><tbody>
+${LABS.filter(l => l.r === r).map(l => `<tr><td>${l.u ? `<a href="${l.u}" rel="nofollow noopener">${esc(l.n)}</a>` : esc(l.n)}${l.mail ? ' <span class="tag" style="margin:0">택배</span>' : ''}<span class="addr">${esc(l.a)}${l.note ? ` · ${esc(l.note)}` : ''}</span></td><td class="n">${won(l.c[0])} / ${won(l.c[1])}</td><td class="n">${won(l.bw)}</td><td class="n">${won(l.sl)}</td><td class="n">${won(l.m)}</td></tr>`).join('')}
+</tbody></table></div>`).join('')}
+<p class="meta">단위: 원. "–"는 해당 서비스가 없거나 가격이 확인되지 않은 경우입니다. 더 많은 현상소는 <a href="${LABS_SRC.url}">${LABS_SRC.name}</a>에서 볼 수 있습니다.</p>
+<h2>택배로 맡길 수 있는 곳</h2>
+<p>근처에 현상소가 없다면 택배 접수를 받는 곳에 보내면 됩니다. 파일은 메일이나 다운로드 링크로 받습니다.</p>
+<ul>${MAIL_LABS.map(l => `<li><a href="${l.u}" rel="nofollow noopener">${esc(l.n)}</a> — ${esc(l.d)}</li>`).join('')}</ul>
+<h2>처음 맡길 때 알아 둘 것</h2>
+<ul>
+<li><b>기본은 "현상 + 스캔"</b>입니다. 인화는 파일을 받아 본 뒤 마음에 드는 컷만 주문해도 됩니다.</li>
+<li><b>기본 스캔과 고해상도 스캔</b>: 휴대폰·SNS용이면 기본으로 충분하고, 크게 인화할 계획이면 고해상도를 고르세요.</li>
+<li><b>흑백과 슬라이드</b>는 받는 곳이 적고 며칠 더 걸립니다. 표에서 가격이 있는 곳을 고르세요.</li>
+<li><b>푸시 현상(+1, +2)</b>이나 하프프레임 스캔 방식은 접수할 때 롤마다 적어 주세요.</li>
+<li>맡기는 순서와 요청 사항 쓰는 법은 <a href="../#lab">현상소 맡기는 법</a>에 정리했습니다.</li>
+</ul>
+` + foot(['lab.jpg']).replaceAll('../../', '../'));
+}
+
+// 6-3) 지역별 현상소
+{ const won = v => v == null ? '–' : v.toLocaleString('ko-KR');
+  const med = a => a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2);
+  const regions = LAB_REGIONS.filter(r => LABS.some(l => l.r === r));
+  const has = (ls, k) => ls.filter(l => k === 'c' ? l.c[0] != null || l.c[1] != null : l[k] != null).length;
+  for (const r of regions) {
+    const {slug, near} = LAB_REGION_PAGES[r];
+    const ls = LABS.filter(l => l.r === r);
+    const url = `${BASE}lab/${slug}/`; urls.push(url);
+    const base = ls.map(l => l.c[0]).filter(v => v != null).sort((a, b) => a - b);
+    const cheap = base.length ? ls.filter(l => l.c[0] === base[0]).map(l => l.n) : [];
+    const kk = [['c', '35mm 컬러'], ['bw', '흑백'], ['sl', '슬라이드'], ['m', '120 컬러']].map(([k, t]) => [t, has(ls, k)]);
+    const yes = kk.filter(x => x[1]).map(([t, n]) => `${t} ${n}곳`).join(', ');
+    const no = kk.filter(x => !x[1]).map(x => x[0]);
+    const kinds = `서비스별로 보면 ${yes}에서 가격이 확인됩니다.${no.length ? ` ${no.join('·')}는 가격이 확인된 곳이 없어, 가까운 지역이나 택배 접수를 함께 보시면 좋습니다.` : ''}`;
+    const nearLinks = near.filter(n => regions.includes(n)).map(n => `<a class="chip" href="../${LAB_REGION_PAGES[n].slug}/">${n} ${LABS.filter(l => l.r === n).length}</a>`).join('');
+    const desc = `${r} 지역 필름 현상소 ${ls.length}곳의 35mm 컬러·흑백·슬라이드·120 현상+스캔 가격과 주소.${base.length ? ` 35mm 컬러 현상+기본 스캔은 ${won(base[0])}원부터.` : ''} 택배로 맡길 수 있는 곳도 함께 정리했습니다.`;
+    writeRel(`lab/${slug}`, head({title: `${r} 필름 현상소 ${ls.length}곳 가격 비교 (${UPDATED_KO}) — 36 EXP.`, desc, url, img: 'lab.jpg',
+      ld: {'@context':'https://schema.org','@graph':[crumbLd([['36 EXP.',BASE],['현상소',`${BASE}lab/`],[r,url]])]}}) + `
+<p class="crumb"><a href="../../">36 EXP.</a> / <a href="../">현상소</a> / ${r}</p>
+<h1>${r} 필름 현상소와 가격</h1>
+<p class="lede">${r}에서 필름을 맡길 수 있는 현상소 ${ls.length}곳의 가격과 주소입니다. ${kinds}</p>
+<p class="meta">가격 기준: <a href="${LABS_SRC.url}">${LABS_SRC.name}</a> (${LABS_SRC.date}) 및 각 현상소 공지. 가격과 운영 여부는 수시로 바뀌니 맡기기 전에 꼭 확인하세요.</p>
+<div class="stats">
+  <div><b>${ls.length}곳</b><span>${r} 현상소</span></div>
+  <div><b>${base.length ? won(base[0]) + '원' : '–'}</b><span>35mm 컬러 현상+기본 스캔 최저${cheap.length ? ` (${esc(cheap.join(', '))})` : ''}</span></div>
+  ${base.length > 1 ? `<div><b>${won(med(base))}원</b><span>기본 스캔 중간값 (${base.length}곳)</span></div>` : `<div><b>${MAIL_LABS.length}곳</b><span>택배로 맡길 수 있는 곳 (아래 목록)</span></div>`}
+</div>
+<div class="scroll" style="margin-top:18px"><table class="labtbl"><thead><tr><th>현상소</th><th>35mm 컬러<br>기본 / 고해상</th><th>35mm 흑백</th><th>35mm 슬라이드</th><th>120 컬러</th></tr></thead><tbody>
+${ls.map(l => `<tr><td>${l.u ? `<a href="${l.u}" rel="nofollow noopener">${esc(l.n)}</a>` : esc(l.n)}${l.mail ? ' <span class="tag" style="margin:0">택배</span>' : ''}<span class="addr">${esc(/^(서울|부산|대구|인천|대전|울산)$/.test(r) ? `${r} ${l.a}` : l.a)}${l.note ? ` · ${esc(l.note)}` : ''}</span></td><td class="n">${won(l.c[0])} / ${won(l.c[1])}</td><td class="n">${won(l.bw)}</td><td class="n">${won(l.sl)}</td><td class="n">${won(l.m)}</td></tr>`).join('')}
+</tbody></table></div>
+<p class="meta">단위: 원. "–"는 해당 서비스가 없거나 가격이 확인되지 않은 경우입니다.</p>
+${nearLinks ? `<h2>가까운 지역 현상소</h2>
+<p>원하는 서비스(흑백, 슬라이드, 120 등)가 없다면 가까운 지역도 함께 보세요.</p>
+<nav class="links" aria-label="가까운 지역">${nearLinks}</nav>` : ''}
+<h2>택배로 맡길 수 있는 곳</h2>
+<p>근처에 맞는 현상소가 없다면 택배 접수를 받는 곳에 보내면 됩니다. 파일은 메일이나 다운로드 링크로 받습니다.</p>
+<ul>${MAIL_LABS.map(l => `<li><a href="${l.u}" rel="nofollow noopener">${esc(l.n)}</a> — ${esc(l.d)}</li>`).join('')}</ul>
+<h2>맡기기 전에</h2>
+<ul>
+<li>기본은 "현상 + 스캔"입니다. 휴대폰·SNS용이면 기본 스캔으로 충분합니다.</li>
+<li>흑백·슬라이드는 받는 곳이 적고 며칠 더 걸립니다. 위 표에서 가격이 있는 곳을 고르세요.</li>
+<li>현상 방식은 필름마다 다릅니다. <a href="../../film/">필름별 가이드</a>에서 현상 방식(C-41·흑백·E-6)을 확인할 수 있습니다.</li>
+<li>전국 ${LABS.length}곳 가격은 <a href="../">현상소 전체 목록</a>에서 한 번에 비교할 수 있습니다.</li>
+</ul>
+` + foot(['lab.jpg']), [...['film-cost', 'first-roll', 'scan-film'].map(R.guide),
+      ...(has(ls, 'bw') ? [] : [R.guide('home-bw-develop')]), R.prices(), R.film('kodak-ultramax-400'), R.faq()]);
+  }
+}
+
+// 7) index.html에 정적 링크 채우기 (검색 로봇이 따라갈 수 있도록)
+const fill = (key, html) => { const re = new RegExp(`(<!-- pages:${key} -->)[\\s\\S]*?(<!-- /pages:${key} -->)`);
+  if (!re.test(index)) throw new Error('marker missing: ' + key); index = index.replace(re, `$1${html}$2`); };
+fill('guides', `<p class="pagelinks"><span class="mono">가이드</span> ${GUIDES.map(g => `<a href="guide/${g.slug}/">${esc(g.t)}</a>`).join(' · ')}</p>`);
+fill('cams', `<p class="pagelinks"><span class="mono">카메라별 가이드</span> ${CAMS.map(c => `<a href="camera/${CAM_SLUG[c.img]}/">${esc(c.n)}</a>`).join(' · ')}</p><p class="pagelinks"><span class="mono">인기 기종</span> ${MODELS.map(md => `<a href="camera/${md.slug}/">${esc(md.n)}</a>`).join(' · ')}</p>`);
+fill('films', `<p class="pagelinks"><span class="mono">필름별 가이드</span> ${FILM_PAGES.map(f => `<a href="film/${f.slug}/">${esc(f.n)}</a>`).join(' · ')}</p><p class="pagelinks"><span class="mono">필름 비교</span> ${COMPARES.map(c => `<a href="compare/${c.slug}/">${esc(c.t)}</a>`).join(' · ')}</p>`);
+fs.writeFileSync(indexPath, index);
+
+// 8) 사이트맵
+fs.writeFileSync(path.join(ROOT, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(u => `  <url>\n    <loc>${u}</loc>\n    <lastmod>${POLICY.some(p => u === `${BASE}${p.slug}/`) ? POLICY_DATE : UPDATED}</lastmod>\n  </url>`).join('\n')}
+</urlset>
+`);
+const rc = Object.values(relCount);
+console.log(`built ${urls.length} urls · 함께 보면 좋은 페이지 ${rc.filter(Boolean).length}쪽, 링크 ${rc.reduce((a, b) => a + b, 0)}개 (0개인 쪽: ${Object.keys(relCount).filter(k => !relCount[k]).join(', ') || '없음'})`);
