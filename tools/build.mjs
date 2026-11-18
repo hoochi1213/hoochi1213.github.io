@@ -145,7 +145,7 @@ const foot = photos => `
 </main>
 <footer class="wrap pagefoot">
   <p>36 EXP.는 필름 사진을 처음 시작하는 사람을 위한 개인 아카이브입니다. 가격은 ${UPDATED_KO} 기준의 대략적인 참고치입니다.</p>
-  <nav class="sitelinks" aria-label="사이트 정보"><a href="../../about/">소개</a> · <a href="../../contact/">문의</a> · <a href="../../privacy/">개인정보처리방침</a> · <a href="../../terms/">이용약관</a></nav>
+  <nav class="sitelinks" aria-label="사이트 정보"><a href="../../about/">소개</a> · <a href="../../gallery/">직접 찍은 사진</a> · <a href="../../contact/">문의</a> · <a href="../../privacy/">개인정보처리방침</a> · <a href="../../terms/">이용약관</a></nav>
   ${creditList(photos)}
 </footer>
 <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "caf3a7a3608e4a4e802395a9ab54a818"}'></script><!-- End Cloudflare Web Analytics -->
@@ -381,6 +381,8 @@ const POLICY = [
 <li><a href="../guide/sunny-16/">써니 16 계산기</a> — 노출계 없이 조리개와 셔터 속도를 정합니다.</li>
 <li><a href="../#develop">흑백 현상 타이머</a> — 현상 단계별 시간을 안내합니다.</li>
 </ul>
+<h2>직접 찍은 사진</h2>
+<p>운영자가 필름 카메라로 찍고 현상소에서 스캔한 사진을 <a href="../gallery/">갤러리</a>에 모아 두었습니다. 사람이 나온 컷은 싣지 않습니다.</p>
 <h2>정보 작성 원칙</h2>
 <ul>
 <li>필름 사양과 현상 방식은 제조사(Kodak, Ilford, Fujifilm 등) 공식 자료를 기준으로 합니다.</li>
@@ -480,6 +482,42 @@ ${p.body}
 </div>
 ` + foot([]).replaceAll('../../', '../'));
 }
+
+// 6-1a) 직접 찍은 사진 갤러리 (운영자 촬영, tools/gallery.json)
+{ const G = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools/gallery.json'), 'utf8'));
+  const url = `${BASE}gallery/`; urls.push(url);
+  const bw = G.filter(g => g.bw), col = G.filter(g => !g.bw);
+  const grid = list => `<div class="mygal">${list.map(g => `<a href="../photos/mine/${g.f}"><img src="../photos/mine/${g.f}" alt="${esc(g.alt)}" width="${g.w}" height="${g.h}" loading="lazy"></a>`).join('')}</div>`;
+  const desc = `36 EXP. 운영자가 필름 카메라로 직접 찍은 사진 ${G.length}장. 흑백 ${bw.length}장, 컬러 ${col.length}장을 골목, 간판, 바다 풍경 위주로 모았습니다.`;
+  write('gallery', head({title: `직접 찍은 필름 사진 ${G.length}장 — 36 EXP.`, desc, url, img: 'og.jpg',
+    ld: {'@context':'https://schema.org','@graph':[{'@type':'ImageGallery',name:'직접 찍은 필름 사진',url,inLanguage:'ko',dateModified:POLICY_DATE,author:{'@type':'Person',name:'김재현'},
+      image:G.slice(0, 10).map(g => ({'@type':'ImageObject',contentUrl:`${BASE}photos/mine/${g.f}`,caption:g.alt,creator:{'@type':'Person',name:'김재현'}}))},
+      crumbLd([['36 EXP.',BASE],['직접 찍은 사진',url]])]}}).replaceAll('../../', '../') + `
+<style>.mygal{columns:3 220px;column-gap:10px;margin:14px 0 28px}.mygal a{display:block;margin:0 0 10px;break-inside:avoid}.mygal img{display:block;width:100%;height:auto;background:var(--rule)}</style>
+<p class="crumb"><a href="../">36 EXP.</a> / 직접 찍은 사진</p>
+<h1>직접 찍은 필름 사진</h1>
+<p class="lede">운영자가 필름 카메라로 찍고 현상소에서 스캔한 사진 ${G.length}장입니다. 사진을 누르면 크게 볼 수 있습니다.</p>
+<div style="max-width:760px">
+<p>이 사이트의 필름·카메라 설명은 제조사 자료를 기준으로 쓰지만, 실제로 찍어 보면 같은 필름도 빛과 현상소에 따라 꽤 다르게 나옵니다. 그 차이를 보여 드리려고 보정 없이 스캔 그대로의 사진을 모았습니다. 길에서 눈에 띈 간판과 골목, 여행지의 바다가 대부분이고, 사람이 나온 컷은 싣지 않았습니다.</p>
+<p>컷마다 어떤 카메라와 필름을 썼는지는 정리하는 대로 덧붙이겠습니다. 필름별 색감이 궁금하다면 <a href="../film/">필름별 가이드</a>와 <a href="../compare/">필름 비교</a>를 함께 보세요.</p>
+</div>
+<h2>흑백 ${bw.length}장</h2>
+<p>흑백은 색이 빠지는 만큼 빛과 그림자, 질감이 먼저 보입니다. 낡은 벽, 전깃줄, 간판 글씨처럼 선과 결이 많은 장면을 주로 찍었습니다.</p>
+${grid(bw)}
+<h2>컬러 ${col.length}장</h2>
+<p>컬러 필름은 하늘과 바다의 파랑, 오후 햇빛의 노란 기운이 디지털보다 부드럽게 남습니다. 바닷가와 동네 풍경 위주입니다.</p>
+${grid(col)}
+<p class="meta">사진 저작권은 운영자에게 있습니다. 쓰고 싶으면 <a href="../contact/">문의</a>해 주세요.</p>
+` + foot([]).replaceAll('../../', '../'));
+}
+
+// 6-1z) 404 페이지 (GitHub Pages는 루트 404.html을 씀 — 어느 깊이에서든 열리도록 절대 경로 사용)
+fs.writeFileSync(path.join(ROOT, '404.html'), head({title: '페이지를 찾을 수 없습니다 — 36 EXP.', desc: '요청한 페이지가 없거나 주소가 바뀌었습니다.', url: `${BASE}404.html`, img: 'og.jpg',
+  ld: {'@context':'https://schema.org','@type':'WebPage',name:'404'}}).replace('<meta charset="utf-8">', '<meta charset="utf-8">\n<meta name="robots" content="noindex">').replaceAll('../../', '/') + `
+<h1>페이지를 찾을 수 없습니다</h1>
+<p class="lede">주소가 바뀌었거나 없는 페이지입니다. 아래에서 찾는 내용을 골라 보세요.</p>
+<nav class="links" aria-label="주요 페이지"><a class="chip" href="/">처음으로</a><a class="chip" href="/guide/">가이드</a><a class="chip" href="/camera/">카메라</a><a class="chip" href="/film/">필름</a><a class="chip" href="/lab/">현상소</a><a class="chip" href="/faq/">자주 묻는 질문</a><a class="chip" href="/gallery/">직접 찍은 사진</a></nav>
+` + foot([]).replaceAll('../../', '/'));
 
 // 6-1) 가이드
 const mdl = s => R.model(MODELS.find(md => md.slug === s));
