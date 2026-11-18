@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {UPDATED, UPDATED_KO, PRICE_CHECK, CAM_SLUG, FILM_PAGES, PROCESS, FAQ, PHOTO_CREDIT, LABS, LAB_REGIONS, LAB_REGION_PAGES, LABS_SRC, MAIL_LABS, GUIDES, MODELS, STATUS_SRC, FUJI_LIVE, FUJI_GONE, COMPARES} from './pages-data.mjs';
+import {FILM_DEEP} from './film-deep.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'https://hoochi1213.github.io/';
@@ -290,6 +291,7 @@ FILM_PAGES.forEach((f0, i) => {
   </div>
 </div>
 <h2>이 필름에 대해</h2><p>${esc(f.more)}</p>
+${(FILM_DEEP[f.slug] || []).map(([h, t]) => `<h2>${esc(h)}</h2><p>${esc(t)}</p>`).join('\n')}
 <h2>현상</h2><p>${pr[1]}</p>
 <h2>어울리는 카메라</h2><div class="links">${f.cams.map(k => `<a class="chip" href="../../camera/${CAM_SLUG[k]}/">${esc(camByKey[k].n)}</a>`).join('')}</div>
 <h2>비슷한 필름</h2><div class="links">${f.alt.map(s => `<a class="chip" href="../${s}/">${esc(filmBySlug[s].n)}</a>`).join('')}</div>${COMPARES.filter(c => c.a === f.slug || c.b === f.slug).map(c => `
